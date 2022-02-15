@@ -45,3 +45,13 @@ func TestCreateSortedSignerArray(t *testing.T) {
 	actual = ibctesting.CreateSortedSignerArray(privVal2, privVal1, validator2, validator1)
 	require.Equal(t, expected, actual)
 }
+
+func TestValidatorsPerChain(t *testing.T) {
+	ibctesting.ValidatorsPerChain = 2
+
+	coordinator := ibctesting.NewCoordinator(t, 2)
+	chainA := coordinator.GetChain(ibctesting.GetChainID(1))
+	chainB := coordinator.GetChain(ibctesting.GetChainID(2))
+	require.Len(t, chainA.Vals.Validators, 2)
+	require.Len(t, chainB.Vals.Validators, 2)
+}
