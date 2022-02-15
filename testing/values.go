@@ -57,7 +57,8 @@ var (
 	MockFailPacketData           = mock.MockFailPacketData
 	MockRecvCanaryCapabilityName = mock.MockRecvCanaryCapabilityName
 
-	prefix = commitmenttypes.NewMerklePrefix([]byte("ibc"))
+	prefix             = commitmenttypes.NewMerklePrefix([]byte("ibc"))
+	ValidatorsPerChain = 1
 )
 
 func GetMockRecvCanaryCapabilityName(packet channeltypes.Packet) string {
