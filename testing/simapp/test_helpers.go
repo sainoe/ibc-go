@@ -263,7 +263,13 @@ func SignAndDeliver(
 		require.Nil(t, res)
 	}
 
-	app.EndBlock(abci.RequestEndBlock{})
+	fmt.Printf("Ends delivering txs in chain %s for header %d\n", header.ChainID, header.Height)
+
+	valUpdates := app.EndBlock(abci.RequestEndBlock{})
+	for _, v := range valUpdates.ValidatorUpdates {
+		fmt.Printf("%#v\n", v.String())
+	}
+
 	app.Commit()
 
 	return gInfo, res, err

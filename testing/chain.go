@@ -69,15 +69,32 @@ type TestChain struct {
 // Time management is handled by the Coordinator in order to ensure synchrony between chains.
 // Each update of any chain increments the block header time for all chains by 5 seconds.
 func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
-	// generate validator private/public key
-	privVal := mock.NewPV()
-	pubKey, err := privVal.GetPubKey()
-	require.NoError(t, err)
 
-	// create validator set with single validator
-	validator := tmtypes.NewValidator(pubKey, 1)
-	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{validator})
-	signers := []tmtypes.PrivValidator{privVal}
+	// generate validators private/public key
+	var (
+		validatorsPerChain = 4
+		validators         []*tmtypes.Validator
+		signersByAddress   = make(map[string]tmtypes.PrivValidator, validatorsPerChain)
+	)
+
+	for i := 0; i < validatorsPerChain; i++ {
+		privVal := mock.NewPV()
+		pubKey, err := privVal.GetPubKey()
+		require.NoError(t, err)
+		validators = append(validators, tmtypes.NewValidator(pubKey, 1))
+		signersByAddress[pubKey.Address().String()] = privVal
+	}
+
+	// construct validator set;
+	// Note that the validators are sorted by voting power
+	// or, if equal, by address lexical order
+	valSet := tmtypes.NewValidatorSet(validators)
+
+	// create signers indexed by the valSet validators's order
+	signers := []tmtypes.PrivValidator{}
+	for _, val := range valSet.Validators {
+		signers = append(signers, signersByAddress[val.PubKey.Address().String()])
+	}
 
 	// generate genesis account
 	senderPrivKey := secp256k1.GenPrivKey()
@@ -322,6 +339,7 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 	header := counterparty.LastHeader
 	// Relayer must query for LatestHeight on client to get TrustedHeight if the trusted height is not set
 	if trustedHeight.IsZero() {
+		fmt.Println("Trusted height 0 so get client state last height")
 		trustedHeight = chain.GetClientState(clientID).GetLatestHeight().(clienttypes.Height)
 	}
 	var (
@@ -342,6 +360,7 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 		if !ok {
 			return nil, sdkerrors.Wrapf(ibctmtypes.ErrInvalidHeaderHeight, "could not retrieve trusted validators at trustedHeight: %d", trustedHeight)
 		}
+		fmt.Printf("Chain %s constructs client header and reads at height %d counterparty vals %#v chains\n", chain.ChainID, (trustedHeight.RevisionHeight + 1), tmTrustedVals)
 	}
 	// inject trusted fields into last header
 	// for now assume revision number is 0
