@@ -72,7 +72,7 @@ func NewTestChain(t *testing.T, coord *Coordinator, chainID string) *TestChain {
 
 	// generate validators private/public key
 	var (
-		validatorsPerChain = 4
+		validatorsPerChain = 1
 		validators         []*tmtypes.Validator
 		signersByAddress   = make(map[string]tmtypes.PrivValidator, validatorsPerChain)
 	)
@@ -226,6 +226,11 @@ func (chain *TestChain) NextBlock() {
 	// use nil trusted fields
 	chain.LastHeader = chain.CurrentTMClientHeader()
 
+	// NOTE: We need to get validators from counterparty at height: trustedHeight+1
+	// since the last trusted validators for a header at height h
+	// is the NextValidators at h+1 committed to in header h by
+	// NextValidatorsHash
+
 	// increment the current header
 	chain.CurrentHeader = tmproto.Header{
 		ChainID: chain.ChainID,
@@ -337,6 +342,7 @@ func (chain *TestChain) ConstructUpdateTMClientHeader(counterparty *TestChain, c
 // light client on the source chain.
 func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterparty *TestChain, clientID string, trustedHeight clienttypes.Height) (*ibctmtypes.Header, error) {
 	header := counterparty.LastHeader
+	fmt.Printf("Chain %s constructs last heeader next val hash %x\n", chain.ChainID, header.Header.NextValidatorsHash)
 	// Relayer must query for LatestHeight on client to get TrustedHeight if the trusted height is not set
 	if trustedHeight.IsZero() {
 		fmt.Println("Trusted height 0 so get client state last height")
@@ -360,7 +366,7 @@ func (chain *TestChain) ConstructUpdateTMClientHeaderWithTrustedHeight(counterpa
 		if !ok {
 			return nil, sdkerrors.Wrapf(ibctmtypes.ErrInvalidHeaderHeight, "could not retrieve trusted validators at trustedHeight: %d", trustedHeight)
 		}
-		fmt.Printf("Chain %s constructs client header and reads at height %d counterparty vals %#v chains\n", chain.ChainID, (trustedHeight.RevisionHeight + 1), tmTrustedVals)
+		fmt.Printf("Chain %s constructs client header and reads at height %d valhash %x nextvalhash %x chains\n", chain.ChainID, (trustedHeight.RevisionHeight + 1), header.Header.ValidatorsHash, header.Header.NextValidatorsHash)
 	}
 	// inject trusted fields into last header
 	// for now assume revision number is 0
@@ -415,6 +421,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		EvidenceHash:       tmhash.Sum([]byte("evidence_hash")),
 		ProposerAddress:    tmValSet.Proposer.Address, //nolint:staticcheck
 	}
+
 	hhash := tmHeader.Hash()
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)

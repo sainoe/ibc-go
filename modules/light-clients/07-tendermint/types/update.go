@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	fmt "fmt"
 	"reflect"
 	"time"
 
@@ -138,6 +139,7 @@ func (cs ClientState) CheckHeaderAndUpdateState(
 		deleteConsensusMetadata(clientStore, pruneHeight)
 	}
 
+	fmt.Printf("%s Update state for header height %d and NextValidatorsHash %x\n", tmHeader.GetHeader().GetChainID(), tmHeader.Header.Height, tmHeader.Header.NextValidatorsHash)
 	newClientState, consensusState := update(ctx, clientStore, &cs, tmHeader)
 	return newClientState, consensusState, nil
 }
