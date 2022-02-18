@@ -254,6 +254,10 @@ func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
 	// ensure the chain has the latest time
 	chain.Coordinator.UpdateTimeForChain(chain)
 
+	// save context before app.Commit()
+	ctx := chain.GetContext()
+
+	// SignAndDeliver calls app.Commit()
 	_, r, err := simapp.SignAndDeliver(
 		chain.t,
 		chain.TxConfig,
@@ -269,12 +273,15 @@ func (chain *TestChain) SendMsgs(msgs ...sdk.Msg) (*sdk.Result, error) {
 		return nil, err
 	}
 
-	// SignAndDeliver calls app.Commit()
-	chain.NextBlock()
+	// check last block validator updates
+	if valUpdates := chain.App.GetStakingKeeper().GetValidatorUpdates(ctx); len(valUpdates) > 0 {
+		chain.UpdateValsetAndNextBlock(valUpdates)
+	} else {
+		chain.NextBlock()
+	}
 
 	// increment sequence for successful transaction execution
 	chain.SenderAccount.SetSequence(chain.SenderAccount.GetSequence() + 1)
-
 	chain.Coordinator.IncrementTime()
 
 	return r, nil
@@ -414,6 +421,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 	}
 	hhash := tmHeader.Hash()
 	blockID := MakeBlockID(hhash, 3, tmhash.Sum([]byte("part_set")))
+
 	voteSet := tmtypes.NewVoteSet(chainID, blockHeight, 1, tmproto.PrecommitType, tmValSet)
 
 	commit, err := tmtypes.MakeCommit(blockID, blockHeight, 1, voteSet, signers, timestamp)
@@ -536,4 +544,58 @@ func (chain *TestChain) GetChannelCapability(portID, channelID string) *capabili
 	require.True(chain.t, ok)
 
 	return cap
+}
+
+// UpdateValsetAndNextBlock update the chain validator set
+// and set the next block header accordingly
+func (chain *TestChain) UpdateValsetAndNextBlock(valUpdates []abci.ValidatorUpdate) error {
+	// copy and update the validator set values
+	updatedValset := chain.Vals.Copy()
+	valsChangeSet, err := tmtypes.PB2TM.ValidatorUpdates(valUpdates)
+	if err != nil {
+		return err
+	}
+	err = updatedValset.UpdateWithChangeSet(valsChangeSet)
+	if err != nil {
+		return err
+	}
+	// set the last header to the current header
+	chain.LastHeader = chain.CurrentTMClientHeader()
+
+	// increment the current header
+	chain.CurrentHeader = tmproto.Header{
+		ChainID: chain.ChainID,
+		Height:  chain.App.LastBlockHeight() + 1,
+		AppHash: chain.App.LastCommitID().Hash,
+		// NOTE: the time is increased by the coordinator to maintain time synchrony amongst
+		// chains.
+		Time:               chain.CurrentHeader.Time,
+		ValidatorsHash:     chain.Vals.Hash(),
+		NextValidatorsHash: updatedValset.Hash(),
+	}
+
+	// update the chain signers if at least one validator was removed from the valset
+	if len(chain.Vals.Validators) != len(updatedValset.Validators) {
+		newSigners, signers := []tmtypes.PrivValidator{}, chain.Signers
+		signersByAddress := make(map[string]tmtypes.PrivValidator, len(signers))
+
+		for _, s := range signers {
+			p, err := s.GetPubKey()
+			if err != nil {
+				return err
+			}
+			signersByAddress[p.Address().String()] = s
+		}
+
+		for _, v := range updatedValset.Validators {
+			newSigners = append(newSigners, signersByAddress[v.Address.String()])
+		}
+
+		chain.Signers = newSigners
+	}
+
+	chain.Vals = updatedValset
+	chain.App.BeginBlock(abci.RequestBeginBlock{Header: chain.CurrentHeader})
+
+	return nil
 }
